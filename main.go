@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/go-redis/redis"
+	"github.com/segmentio/kafka-go"
+
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
@@ -18,17 +20,35 @@ import (
 )
 
 var redisClient *redis.Client
+var kafkaWriter *kafka.Writer
 
 func main() {
-	var ro redis.Options
-	ro.Addr = os.Getenv("REDIS_ADDR")
+	var err error
 
-	redisClient = redis.NewClient(&ro)
-	_, err := redisClient.Ping().Result()
-	if err != nil {
-		log.Fatal("Unable to connect to Redis, cannot proceed", err)
+	var redisAddress = os.Getenv("REDIS_ADDR")
+	var kafkaAddress = os.Getenv("KAFKA_ADDR")
+	if len(redisAddress) == 0 && len(kafkaAddress) == 0 {
+		log.Fatal("You must specify a Redis or Kafka address")
 	}
-	log.Println("👍🏻 Connected to Redis server..")
+
+	if len(redisAddress) > 0 {
+		var ro redis.Options
+		ro.Addr = redisAddress
+		redisClient = redis.NewClient(&ro)
+		_, err = redisClient.Ping().Result()
+		if err != nil {
+			log.Fatal("Unable to connect to Redis, cannot proceed", err)
+		}
+		log.Println("👍🏻 Connected to Redis server..")
+	}
+
+	if len(kafkaAddress) > 0 {
+		kafkaWriter = &kafka.Writer{
+			Addr:     kafka.TCP(kafkaAddress),
+			Topic:    "kubernetes",
+			Balancer: &kafka.LeastBytes{},
+		}
+	}
 
 	kubernetesServiceHost := os.Getenv("KUBERNETES_SERVICE_HOST")
 	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
@@ -69,13 +89,28 @@ func main() {
 		switch event.Type {
 		case watch.Added:
 			fmt.Println("Namespace", ns.ObjectMeta.Name, "added")
-			err = publishMessage("namespace added", nsJson)
+			if redisClient != nil {
+				publishMessageRedis("namespace added", nsJson)
+			}
+			if kafkaWriter != nil {
+				publishMessageKafka("namespace added", nsJson)
+			}
 		case watch.Modified:
 			fmt.Printf("Namespace %s modified", ns.ObjectMeta.Name)
-			err = publishMessage("namespace modified", nsJson)
+			if redisClient != nil {
+				publishMessageRedis("namespace modified", nsJson)
+			}
+			if kafkaWriter != nil {
+				publishMessageRedis("namespace modified", nsJson)
+			}
 		case watch.Deleted:
 			fmt.Printf("Namespace %s deleted", ns.ObjectMeta.Name)
-			err = publishMessage("namespace deleted", nsJson)
+			if redisClient != nil {
+				publishMessageRedis("namespace deleted", nsJson)
+			}
+			if kafkaWriter != nil {
+				publishMessageKafka("namespace deleted", nsJson)
+			}
 		}
 
 		if err != nil {
@@ -84,10 +119,23 @@ func main() {
 	}
 }
 
-func publishMessage(whatHappened string, data []byte) error {
-	fmt.Println(string(data))
+func publishMessageKafka(whatHappened string, data []byte) error {
+	err := kafkaWriter.WriteMessages(context.Background(),
+		kafka.Message{
+			Key:   []byte("namespace added"),
+			Value: data,
+		},
+	)
+	if err != nil {
+		fmt.Println("failed to write message to Kafka:", err)
+	}
+	return err
+}
 
-	return redisClient.XAdd(&redis.XAddArgs{
+// *** USING REDIS FOR MESSAGING ***
+func publishMessageRedis(whatHappened string, data []byte) error {
+	fmt.Println(string(data))
+	err := redisClient.XAdd(&redis.XAddArgs{
 		Stream:       "kubernetes",
 		MaxLen:       0,
 		MaxLenApprox: 0,
@@ -97,4 +145,10 @@ func publishMessage(whatHappened string, data []byte) error {
 			"k8sObject":    data,
 		},
 	}).Err()
+	if err != nil {
+		fmt.Println("Failed to write message to Redis:", err)
+	}
+	return err
 }
+
+// ***

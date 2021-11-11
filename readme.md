@@ -22,3 +22,16 @@ You can configure the Redis endpoint to connect to with the `REDIS_ADDR` environ
 And that's it - microdocumentation for a microservice that does one thing.
 
 Enjoy, star, follow `;)`
+
+---
+
+Basic build size: 39MB
+Build size with Redis: 40MB
+Build size with Kafka: 40MB
+Build size with both: 41MB
+
+Confluent Kafka Golang client wouldn't work on Apple M1 because:
+```
+ld: warning: ignoring file ../../../go/pkg/mod/gopkg.in/confluentinc/confluent-kafka-go.v1@v1.7.0/kafka/librdkafka_vendor/librdkafka_darwin.a, building for macOS-arm64 but attempting to link with file built for macOS-x86_64
+```
+Using segmentio Kafka instead.
