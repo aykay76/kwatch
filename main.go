@@ -101,7 +101,7 @@ func main() {
 				publishMessageRedis("namespace modified", nsJson)
 			}
 			if kafkaWriter != nil {
-				publishMessageRedis("namespace modified", nsJson)
+				publishMessageKafka("namespace modified", nsJson)
 			}
 		case watch.Deleted:
 			fmt.Printf("Namespace %s deleted", ns.ObjectMeta.Name)
