@@ -32,6 +32,7 @@ func main() {
 	}
 
 	if len(redisAddress) > 0 {
+		fmt.Println("I intend to use Redis at", redisAddress)
 		var ro redis.Options
 		ro.Addr = redisAddress
 		redisClient = redis.NewClient(&ro)
@@ -43,6 +44,7 @@ func main() {
 	}
 
 	if len(kafkaAddress) > 0 {
+		fmt.Println("I intend to use Kafka at", kafkaAddress)
 		kafkaWriter = &kafka.Writer{
 			Addr:     kafka.TCP(kafkaAddress),
 			Topic:    "kubernetes",
@@ -134,7 +136,7 @@ func publishMessageKafka(whatHappened string, data []byte) error {
 
 // *** USING REDIS FOR MESSAGING ***
 func publishMessageRedis(whatHappened string, data []byte) error {
-	fmt.Println(string(data))
+	// fmt.Println(string(data))
 	err := redisClient.XAdd(&redis.XAddArgs{
 		Stream:       "kubernetes",
 		MaxLen:       0,
